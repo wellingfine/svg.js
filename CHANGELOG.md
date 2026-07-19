@@ -15,6 +15,8 @@ The document follows the conventions described in [“Keep a CHANGELOG”](http:
 
 ### Fixed
 
+- cancel pending animation frames when terminating timelines
+- keep stepping the remaining runners when an event handler unschedules one mid-frame
 - settle controller animations on `Timeline.finish()` instead of leaving them at their current value
 - keep the clock finite when `Runner.finish()` ends a bounded animation, instead of leaving `time()` at `Infinity` where it broke `progress()`, rewinding and persistence deadlines
 - stop reapplying a transform animation that already reached its target, which made relative controller transforms drift away without end

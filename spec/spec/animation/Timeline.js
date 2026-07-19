@@ -468,6 +468,206 @@ describe('Timeline.js', () => {
     })
   })
 
+  describe('terminate()', () => {
+    it('retires the runners it drops', () => {
+      const timeline = new Timeline(() => 0)
+      const runner = new Runner(100)
+      timeline.schedule(runner, 0, 'absolute')
+
+      timeline.terminate()
+
+      expect(runner._retired).toBe(true)
+    })
+
+    it('does not pile up transform runners across terminate cycles', () => {
+      const element = new Rect()
+
+      for (let i = 0; i < 3; ++i) {
+        const timeline = element
+          .timeline()
+          .source(() => 0)
+          .persist(true)
+        element
+          .animate(100, 0, 'absolute')
+          .ease('-')
+          .transform({ translate: [10, 0] }, true)
+        timeline.time(100)
+        timeline.time(200)
+        jasmine.RequestAnimationFrame.tick(1)
+        timeline.terminate()
+      }
+
+      // terminate has to retire what it drops, or nothing may ever fold these
+      // into the baseline again and every later frame recomposes over them
+      expect(element._transformationRunners.length()).toBe(2)
+    })
+
+    it('cancels the pending frame and can be reused', () => {
+      const timeline = new Timeline()
+      const oldRunner = new Runner(1000)
+      const finished = createSpy('finished')
+
+      timeline.on('finished', finished).schedule(oldRunner).play()
+      expect(timeline.active()).toBe(true)
+
+      timeline.terminate()
+      jasmine.RequestAnimationFrame.tick(16)
+
+      expect(timeline.active()).toBe(false)
+      expect(oldRunner.time()).toBe(0)
+      expect(finished).not.toHaveBeenCalled()
+
+      const newRunner = new Runner(1000)
+      timeline.schedule(newRunner).play()
+      jasmine.RequestAnimationFrame.tick(16)
+      expect(newRunner.time()).toBe(16)
+    })
+
+    it('keeps stepping when a callback unschedules a later runner', () => {
+      const timeline = new Timeline(() => 0)
+      const first = new Runner(10)
+      const second = new Runner(20)
+      const third = new Runner(20)
+
+      first.on('finished', () => second.unschedule())
+      timeline
+        .schedule(first, 0, 'absolute')
+        .schedule(second, 0, 'absolute')
+        .schedule(third, 0, 'absolute')
+
+      expect(() => timeline.time(11)).not.toThrow()
+      expect(second.time()).toBe(0)
+      expect(third.time()).toBe(11)
+    })
+
+    it('keeps stepping when a callback unschedules an earlier runner', () => {
+      const timeline = new Timeline(() => 0)
+      // first is still running when second retires, so removing it here
+      // shifts every later runner down a slot
+      const first = new Runner(100)
+      const second = new Runner(20)
+      const third = new Runner(20)
+
+      second.on('finished', () => first.unschedule())
+      timeline
+        .schedule(first, 0, 'absolute')
+        .schedule(second, 0, 'absolute')
+        .schedule(third, 0, 'absolute')
+
+      expect(() => timeline.time(21)).not.toThrow()
+      expect(third.time()).toBe(21)
+    })
+
+    it('keeps resetting when a callback unschedules runners on a back seek', () => {
+      // persist before scheduling, so the runners survive the forward seek
+      const timeline = new Timeline(() => 0).persist(true)
+      const first = new Runner(10)
+      const second = new Runner(10)
+      const third = new Runner(10)
+
+      timeline
+        .schedule(first, 1000, 'absolute')
+        .schedule(second, 1000, 'absolute')
+        .schedule(third, 1000, 'absolute')
+      timeline.time(2000)
+
+      // reset runs backwards, so this empties the schedule ahead of the index
+      third.on('step', () => {
+        first.unschedule()
+        second.unschedule()
+      })
+
+      expect(() => timeline.time(0)).not.toThrow()
+    })
+
+    it('leaves untouched runners alone when a callback terminates mid-step', () => {
+      const timeline = new Timeline(() => 0).persist(true)
+      const first = new Rect().x(0)
+      const second = new Rect().x(0)
+      const firstRunner = new Runner(1000).ease('-').element(first).x(100)
+      const secondRunner = new Runner(1000).ease('-').element(second).x(100)
+
+      timeline
+        .schedule(firstRunner, 0, 'absolute')
+        .schedule(secondRunner, 0, 'absolute')
+      timeline.time(500)
+      expect(second.x()).toBe(50)
+
+      // terminating drops the schedule, so the runners behind this one must
+      // not be reset by the step that is already walking a copy of it
+      firstRunner.on('step', () => timeline.terminate())
+      timeline.time(600)
+
+      expect(second.x()).toBe(50)
+    })
+
+    it('skips a runner a callback rescheduled out from under the step', () => {
+      const timeline = new Timeline(() => 0)
+      const first = new Runner(10)
+      const second = new Runner(100)
+
+      first.on('finished', () => timeline.schedule(second, 500, 'absolute'))
+      timeline
+        .schedule(first, 0, 'absolute')
+        .schedule(second, 0, 'absolute')
+        .play()
+
+      timeline.time(11)
+
+      // second now starts at 500, so the entry we copied is stale and it must
+      // not be stepped off the start time it used to have
+      expect(timeline.getRunnerInfoById(second.id).start).toBe(500)
+      expect(second.time()).toBe(0)
+      expect(timeline.active()).toBe(true)
+    })
+
+    it('preserves a runner rescheduled by its own finished callback', () => {
+      const timeline = new Timeline(() => 0)
+      const runner = new Runner(10)
+
+      runner.on('finished', () => timeline.schedule(runner, 500, 'absolute'))
+      timeline.schedule(runner, 0, 'absolute').play()
+
+      timeline.time(11)
+
+      expect(timeline.getRunnerInfoById(runner.id).start).toBe(500)
+      expect(runner.timeline()).toBe(timeline)
+      expect(timeline.active()).toBe(true)
+    })
+
+    it('stops an in-flight step when a runner callback terminates it', () => {
+      const timeline = new Timeline(() => 0)
+      const first = new Runner(10)
+      const second = new Runner(20)
+      const finished = createSpy('finished')
+
+      first.on('finished', () => timeline.terminate())
+      timeline
+        .on('finished', finished)
+        .schedule(first, 0, 'absolute')
+        .schedule(second, 0, 'absolute')
+
+      expect(() => timeline.time(11)).not.toThrow()
+      expect(timeline.schedule()).toEqual([])
+      expect(second.time()).toBe(0)
+      expect(finished).not.toHaveBeenCalled()
+    })
+
+    it('stops finish() when a runner callback terminates it', () => {
+      const timeline = new Timeline(() => 0)
+      const finished = createSpy('finished')
+      const runner = new Runner(new Spring()).timeline(timeline).x(100)
+
+      runner.element(new Rect()).schedule(0, 'absolute')
+      runner.on('finished', () => timeline.terminate())
+      timeline.on('finished', finished)
+
+      timeline.finish()
+
+      expect(finished).not.toHaveBeenCalled()
+    })
+  })
+
   describe('_stepFn', () => {
     it('does a step in the timeline and runs all runners', () => {
       const timeline = new Timeline()

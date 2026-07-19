@@ -30,6 +30,7 @@ export default class Runner extends EventTarget {
     // Declare all of the variables
     this._element = null
     this._timeline = null
+    this._runnerInfo = null
     this.done = false
     this._queue = []
 

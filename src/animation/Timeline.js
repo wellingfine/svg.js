@@ -147,6 +147,10 @@ export default class Timeline extends EventTarget {
     }
 
     this._lastRunnerId = runner.id
+    // Let the runner point back at its live entry, so a step already walking a
+    // copy of the schedule can tell at a glance whether its entry is still the
+    // current one or a stale one a callback replaced
+    runner._runnerInfo = runnerInfo
 
     this._runners.push(runnerInfo)
     this._runners.sort((a, b) => a.start - b.start)
@@ -193,6 +197,7 @@ export default class Timeline extends EventTarget {
     this._runnerIds.splice(index, 1)
 
     runner.timeline(null)
+    runner._runnerInfo = null
     // Nothing drives this runner anymore, so its transforms may now be folded
     // into the element baseline. Scheduling it again takes that permission back.
     runner._retired = true
@@ -220,6 +225,8 @@ export default class Timeline extends EventTarget {
   }
 
   _stepFn(immediateStep = false) {
+    const generation = this._generation
+
     // Get the time delta from the last time and update the time
     const time = this._timeSource()
     let dtSource = time - this._lastSourceTime
@@ -250,9 +257,17 @@ export default class Timeline extends EventTarget {
     // runner always wins the reset even if the other runner started earlier
     // and therefore should win the attribute battle
     // this can be solved by resetting them backwards
-    for (let k = this._runners.length; k--;) {
+    // Iterate a copy here and below: resetting or stepping a runner fires
+    // events, and a handler is free to unschedule any runner it likes, which
+    // would shift the rest of the schedule out from under a live index
+    const scheduled = this._runners.slice()
+    for (let k = scheduled.length; k--;) {
       // Get and run the current runner and ignore it if its inactive
-      const runnerInfo = this._runners[k]
+      const runnerInfo = scheduled[k]
+
+      // Leave out whatever left the schedule since we took the copy
+      if (runnerInfo.runner._runnerInfo !== runnerInfo) continue
+
       const runner = runnerInfo.runner
 
       // Make sure that we give the actual difference
@@ -268,9 +283,10 @@ export default class Timeline extends EventTarget {
 
     // Run all of the runners directly
     let runnersLeft = false
-    for (let i = 0, len = this._runners.length; i < len; i++) {
+    for (const runnerInfo of this._runners.slice()) {
+      if (runnerInfo.runner._runnerInfo !== runnerInfo) continue
+
       // Get and run the current runner and ignore it if its inactive
-      const runnerInfo = this._runners[i]
       const runner = runnerInfo.runner
       let dt = dtTime
 
@@ -298,6 +314,12 @@ export default class Timeline extends EventTarget {
       // ended by a seek, so while finishing we settle it at its target instead.
       const settle = this._finishing && runner._isDeclarative
       const finished = (settle ? runner.finish() : runner.step(dt)).done
+
+      // A callback may have removed or rescheduled this runner while stepping
+      // it. Do not apply the old entry's completion bookkeeping to its
+      // replacement.
+      if (runner._runnerInfo !== runnerInfo) continue
+
       if (!finished) {
         runnersLeft = true
         // continue
@@ -306,12 +328,25 @@ export default class Timeline extends EventTarget {
         const endTime = runner.duration() - runner.time() + this._time
 
         if (endTime + runnerInfo.persist <= this._time) {
-          // Delete runner and correct index
           runner.unschedule()
-          --i
-          --len
         }
       }
+    }
+
+    // The loops above tolerate a callback emptying the schedule, but the
+    // bookkeeping below cannot: a terminated timeline must not announce that it
+    // finished, and reviving one is allowed to happen from inside a handler, so
+    // a flag we would have to clear again is not enough to recognise that.
+    if (generation !== this._generation) return this
+
+    if (!runnersLeft) {
+      // The loop walks a snapshot so callbacks can safely mutate the schedule.
+      // Check the live entries before stopping, because runners added or
+      // rescheduled by those callbacks were not part of that snapshot.
+      runnersLeft = this._runners.some(
+        ({ start, runner }) =>
+          start >= this._time || (runner.active() && !runner.done)
+      )
     }
 
     // Basically: we continue when there are runners right from us in time
@@ -330,7 +365,12 @@ export default class Timeline extends EventTarget {
   }
 
   terminate() {
-    // cleanup memory
+    // The Animator queue owns the bound step callback. Cancel it before
+    // dropping our handle so termination cannot retain or step this timeline.
+    Animator.cancelFrame(this._nextFrame)
+    // A frame that is already executing cannot be cancelled. Advancing this
+    // token lets it detect termination after synchronous event callbacks.
+    this._generation = (this._generation || 0) + 1
 
     // Store the timing variables
     this._startTime = 0
@@ -341,8 +381,12 @@ export default class Timeline extends EventTarget {
 
     // Let go of the runners we were driving. Retiring them matches what
     // unscheduling one does: nothing steps them anymore, so their transforms
-    // may be folded into the element baseline.
-    for (const { runner } of this._runners || []) runner._retired = true
+    // may be folded into the element baseline. Dropping the entry back pointer
+    // also lets a frame that is already executing recognise them as gone.
+    for (const { runner } of this._runners || []) {
+      runner._retired = true
+      runner._runnerInfo = null
+    }
 
     // Keep track of the running animations and their starting parameters
     this._nextFrame = null
