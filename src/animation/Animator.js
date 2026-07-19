@@ -7,7 +7,6 @@ const Animator = {
   timeouts: new Queue(),
   immediates: new Queue(),
   timer: () => globals.window.performance || globals.window.Date,
-  transforms: [],
 
   frame(fn) {
     // Store the node

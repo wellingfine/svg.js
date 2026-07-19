@@ -1,4 +1,5 @@
 import {
+  Animator,
   Matrix,
   PointArray,
   Rect,
@@ -25,6 +26,9 @@ type Equal<A, B> =
 type Expect<T extends true> = T
 
 registerWindow(window, document)
+
+const animationClock: Performance | DateConstructor = Animator.timer()
+animationClock.now()
 
 const drawing: Svg = SVG()
 const rect: Rect = drawing.rect(12, 34)

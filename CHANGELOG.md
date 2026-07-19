@@ -15,6 +15,7 @@ The document follows the conventions described in [“Keep a CHANGELOG”](http:
 
 ### Fixed
 
+- align animation TypeScript declarations with the runtime and remove unused `Animator.transforms`, `Runner.transformId`, and private runner state
 - cancel pending animation frames when terminating timelines
 - keep stepping the remaining runners when an event handler unschedules one mid-frame
 - settle controller animations on `Timeline.finish()` instead of leaving them at their current value

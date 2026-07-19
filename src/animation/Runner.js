@@ -52,7 +52,6 @@ export default class Runner extends EventTarget {
 
     // Save transforms applied to this runner
     this.transforms = new Matrix()
-    this.transformId = 1
     // Transform runners stay registered across seeks; these flags distinguish
     // cached transform data from whether it currently contributes to the DOM.
     this._isAbsoluteTransform = false
@@ -67,14 +66,10 @@ export default class Runner extends EventTarget {
     this._retired = false
 
     // Looping variables
-    this._haveReversed = false
     this._reverse = false
-    this._loopsDone = 0
     this._swing = false
     this._wait = 0
     this._times = 1
-
-    this._frameId = null
 
     // Stores how long a runner is stored after being done
     this._persist = this._isDeclarative ? true : null

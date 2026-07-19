@@ -1103,7 +1103,6 @@ declare module '@svgdotjs/svg.js' {
     active(a: boolean): this
     addTransform(m: Matrix): this
     clearTransform(): this
-    clearTransformsFromQueue(): void
 
     // extends prototypes
     attr(a: string | object, v?: string): this
@@ -1183,7 +1182,7 @@ declare module '@svgdotjs/svg.js' {
     timeouts: Queue
     immediates: Queue
 
-    timer(): boolean
+    timer(): Performance | DateConstructor
     frame(fn: Function): object
     timeout(fn: Function, delay?: number): object
     immediate(fn: Function): object
