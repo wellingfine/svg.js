@@ -941,16 +941,11 @@ extend(Runner, {
     }
 
     function retarget(newTransforms) {
-      // only get a new origin if it changed since the last call
-      if (
-        (newTransforms.origin || 'center').toString() !==
-        (transforms.origin || 'center').toString()
-      ) {
-        origin = getOrigin(newTransforms, element)
-      }
-
-      // overwrite the old transformations with the new ones
-      transforms = { ...newTransforms, origin }
+      // Retargeting is user-driven rather than frame-driven. Resolving every
+      // time is both simpler and correct for zero-valued aliases and bounding
+      // boxes that changed since the previous target was established.
+      origin = getOrigin(newTransforms, element)
+      transforms = { ...newTransforms }
     }
 
     this.queue(setup, run, retarget, true)

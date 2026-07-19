@@ -1667,6 +1667,26 @@ describe('Runner.js', () => {
           ])
         })
 
+        it('retargets between center and zero-valued origins', () => {
+          const element = new Rect({ width: 100, height: 100 })
+          const runner = new Runner(() => 1).element(element)
+
+          runner.transform({ scale: 2 }).step(16)
+          expect(runner._history.transform.morpher.to().slice(-2)).toEqual([
+            50, 50
+          ])
+
+          runner.transform({ scale: 3, origin: 0 }).step(16)
+          expect(runner._history.transform.morpher.to().slice(-2)).toEqual([
+            0, 0
+          ])
+
+          runner.transform({ scale: 4 }).step(16)
+          expect(runner._history.transform.morpher.to().slice(-2)).toEqual([
+            50, 50
+          ])
+        })
+
         it('steps multiple relative animations correctly', () => {
           const element = new Rect()
           const runner = new Runner(100).ease('-').element(element)
