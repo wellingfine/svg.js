@@ -608,32 +608,28 @@ function mergeTransforms() {
 export class RunnerArray {
   constructor() {
     this.runners = []
-    this.ids = []
   }
 
   add(runner) {
     if (this.runners.includes(runner)) return
-    const id = runner.id + 1
 
     this.runners.push(runner)
-    this.ids.push(id)
 
     return this
   }
 
   edit(id, newRunner) {
-    const index = this.ids.indexOf(id + 1)
-    this.ids.splice(index, 1, id + 1)
-    this.runners.splice(index, 1, newRunner)
+    const index = this.runners.findIndex((runner) => runner.id === id)
+    if (index >= 0) this.runners.splice(index, 1, newRunner)
     return this
   }
 
   getByID(id) {
-    return this.runners[this.ids.indexOf(id + 1)]
+    return this.runners.find((runner) => runner.id === id)
   }
 
   length() {
-    return this.ids.length
+    return this.runners.length
   }
 
   merge() {
@@ -652,7 +648,6 @@ export class RunnerArray {
         lastRunner._retired
 
       if (condition) {
-        // the +1 happens in the function
         this.remove(runner.id)
         const newRunner = runner.mergeWith(lastRunner)
         this.edit(lastRunner.id, newRunner)
@@ -667,9 +662,8 @@ export class RunnerArray {
   }
 
   remove(id) {
-    const index = this.ids.indexOf(id + 1)
-    this.ids.splice(index, 1)
-    this.runners.splice(index, 1)
+    const index = this.runners.findIndex((runner) => runner.id === id)
+    if (index >= 0) this.runners.splice(index, 1)
     return this
   }
 }

@@ -2566,6 +2566,16 @@ describe('Runner.js', () => {
         arr.remove(runner.id)
         expect(arr.length()).toBe(0)
       })
+
+      it('does not remove another runner for an unknown id', () => {
+        const runner = new Runner()
+        const arr = new RunnerArray().add(runner)
+
+        arr.remove(-100)
+
+        expect(arr.length()).toBe(1)
+        expect(arr.runners[0]).toBe(runner)
+      })
     })
 
     describe('merge()', () => {
@@ -2690,6 +2700,15 @@ describe('Runner.js', () => {
         arr.edit(runner1.id, runner2)
         expect(arr.length()).toBe(1)
         expect(arr.runners[0]).toBe(runner2)
+      })
+
+      it('does not replace another runner for an unknown id', () => {
+        const runner = new Runner()
+        const arr = new RunnerArray().add(runner)
+
+        arr.edit(-100, new FakeRunner())
+
+        expect(arr.runners[0]).toBe(runner)
       })
     })
 

@@ -10,6 +10,7 @@ The document follows the conventions described in [“Keep a CHANGELOG”](http:
 
 ### Changed
 
+- simplify transform runner bookkeeping around one ordered collection
 - fire `finished` on controller runners when they converge, and again whenever a retargeted controller completes anew
 - retire runners in the frame they reach their end, so `runner.time()` on a completed timeline reports the duration instead of overshooting by a frame
 
