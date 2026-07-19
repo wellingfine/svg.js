@@ -59,6 +59,12 @@ export default class Runner extends EventTarget {
     this._transformInitialised = false
     this._transformActive = false
 
+    // A retired runner is one a timeline dropped for good. Only those may be
+    // folded into an element's transform baseline. Being done is not enough:
+    // a runner that reached its end can still be rewound or retargeted, and
+    // folding it would leave its own transform in the baseline it composes on.
+    this._retired = false
+
     // Looping variables
     this._haveReversed = false
     this._reverse = false
@@ -168,7 +174,20 @@ export default class Runner extends EventTarget {
   }
 
   finish() {
-    return this.step(Infinity)
+    // A timed runner ends at its duration, which keeps Infinity out of _time
+    // and preserves time(), progress() and the persistence deadlines the
+    // timeline derives from them. One looping forever has no such end and
+    // still lands on Infinity.
+    if (!this._isDeclarative) return this.time(this.duration())
+
+    // A controller has no duration and settles only when handed dt = Infinity,
+    // which every Stepper reads as "jump to the target and report done". The
+    // clock must not keep that value though: rewinding a runner steps it by
+    // `target - _time`, and Infinity - Infinity would strand it at NaN.
+    const time = this._time
+    this.step(Infinity)
+    this._time = time
+    return this
   }
 
   loop(times, swing, wait) {
@@ -272,6 +291,11 @@ export default class Runner extends EventTarget {
   These methods allow us to attach basic functions to the runner directly
   */
   queue(initFn, runFn, retargetFn, isTransform) {
+    // A controller converges again once it has something new to chase. A timed
+    // runner cannot: past its duration the position is pinned, so step() never
+    // runs the queue again and would only rederive done on the very next frame.
+    if (this._isDeclarative) this.done = false
+
     this._queue.push({
       initialiser: initFn || noop,
       runner: runFn || noop,
@@ -346,6 +370,8 @@ export default class Runner extends EventTarget {
     // If we are inactive, this stepper just gets skipped
     if (!this.enabled) return this
 
+    const wasDone = this.done
+
     // Update the time and get the new position
     dt = dt == null ? 16 : dt
     this._time += dt
@@ -358,18 +384,13 @@ export default class Runner extends EventTarget {
     // Figure out if we just started
     const duration = this.duration()
     const justStarted = this._lastTime <= 0 && this._time > 0
-    const justFinished = this._lastTime < duration && this._time >= duration
-
     this._lastTime = this._time
     if (justStarted) {
       this.fire('start', this)
     }
 
-    // Work out if the runner is finished set the done flag here so animations
-    // know, that they are running in the last step (this is good for
-    // transformations which can be merged)
     const declarative = this._isDeclarative
-    this.done = !declarative && !justFinished && this._time >= duration
+    this.done = !declarative && this._time >= duration
 
     // Runner is running. So its not in reset state anymore
     this._reseted = false
@@ -389,10 +410,11 @@ export default class Runner extends EventTarget {
 
       this.fire('step', this)
     }
-    // correct the done flag here
-    // declarative animations itself know when they converged
+    // Timed runners finish at their endpoint. Controller runners instead use
+    // convergence reported by their queued actions. Both paths emit the same
+    // event exactly once for each transition into the completed state.
     this.done = this.done || (converged && declarative)
-    if (justFinished) {
+    if (this.done && !wasDone) {
       this.fire('finished', this)
     }
     return this
@@ -511,6 +533,7 @@ export default class Runner extends EventTarget {
       }
 
       this._history[method].caller.finished = false
+      if (this._isDeclarative) this.done = false
       const timeline = this.timeline()
       timeline && timeline.play()
       return true
@@ -533,6 +556,8 @@ export class FakeRunner {
     this.done = done
     this._isAbsoluteTransform = isAbsoluteTransform
     this._transformActive = true
+    // A fake runner only ever holds a frozen matrix, so it is always foldable
+    this._retired = true
   }
 }
 
@@ -620,15 +645,15 @@ export class RunnerArray {
     for (let i = 0; i < this.runners.length; ++i) {
       const runner = this.runners[i]
 
+      // Only fold runners a timeline has retired for good. A runner that is
+      // merely done can still be rewound, looped or retargeted, and it composes
+      // on the baseline it would have been folded into.
       const condition =
         lastRunner &&
         runner.done &&
         lastRunner.done &&
-        // don't merge runner when persisted on timeline
-        (!runner._timeline ||
-          !runner._timeline._runnerIds.includes(runner.id)) &&
-        (!lastRunner._timeline ||
-          !lastRunner._timeline._runnerIds.includes(lastRunner.id))
+        runner._retired &&
+        lastRunner._retired
 
       if (condition) {
         // the +1 happens in the function

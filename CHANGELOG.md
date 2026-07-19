@@ -8,8 +8,16 @@ The document follows the conventions described in [“Keep a CHANGELOG”](http:
 
 ## [Unreleased]
 
+### Changed
+
+- fire `finished` on controller runners when they converge, and again whenever a retargeted controller completes anew
+- retire runners in the frame they reach their end, so `runner.time()` on a completed timeline reports the duration instead of overshooting by a frame
+
 ### Fixed
 
+- settle controller animations on `Timeline.finish()` instead of leaving them at their current value
+- keep the clock finite when `Runner.finish()` ends a bounded animation, instead of leaving `time()` at `Infinity` where it broke `progress()`, rewinding and persistence deadlines
+- stop reapplying a transform animation that already reached its target, which made relative controller transforms drift away without end
 - stop rerunning completed non-transform actions while controller animations continue
 - honor zero-valued origins when retargeting declarative transform animations
 - capture relative animation transform baselines when the animation starts

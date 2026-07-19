@@ -5,6 +5,7 @@ import {
   defaults,
   Ease,
   Controller,
+  Spring,
   SVG,
   Timeline,
   Rect,
@@ -153,6 +154,30 @@ describe('Runner.js', () => {
             finished: false
           })
         )
+      })
+
+      it('reopens a converged controller runner', () => {
+        const runner = new Runner(new Controller(() => 0))
+        runner.done = true
+
+        runner.queue(null, () => false)
+
+        expect(runner.done).toBe(false)
+      })
+
+      it('leaves a finished timed runner done', () => {
+        const finished = createSpy('finished')
+        const element = new Rect().x(0).y(0)
+        const runner = new Runner(100).element(element).x(100).after(finished)
+
+        runner.step(100)
+        // past its duration the position is pinned, so this action can never
+        // run and the runner must not announce a second completion
+        runner.y(50)
+        runner.step(100)
+
+        expect(runner.done).toBe(true)
+        expect(finished).toHaveBeenCalledTimes(1)
       })
     })
 
@@ -861,12 +886,71 @@ describe('Runner.js', () => {
         expect(runner.finish()).toBe(runner)
       })
 
-      it('calls step with Infinity as argument', () => {
-        var runner = new Runner()
+      it('settles a controller runner with Infinity', () => {
+        var runner = new Runner(new Controller())
         spyOn(runner, 'step')
         runner.finish()
 
         expect(runner.step).toHaveBeenCalledWith(Infinity)
+      })
+
+      it('lands a timed runner on its duration', () => {
+        const runner = new Runner(100)
+
+        runner.finish()
+
+        expect(runner.time()).toBe(100)
+        expect(runner.progress()).toBe(1)
+      })
+
+      it('marks a timed runner done and fires finished once', () => {
+        const finished = createSpy('finished')
+        const runner = new Runner(100).after(finished)
+
+        runner.finish().finish()
+
+        expect(runner.done).toBe(true)
+        expect(finished).toHaveBeenCalledTimes(1)
+      })
+
+      it('leaves a controller runner on a finite clock', () => {
+        const element = new Rect().x(0)
+        const runner = new Runner(new Spring()).element(element).x(100)
+
+        runner.finish()
+
+        expect(element.x()).toBe(100)
+        expect(runner.done).toBe(true)
+        expect(runner.time()).toBe(0)
+      })
+
+      it('can rewind a controller runner after settling it', () => {
+        const element = new Rect().x(0)
+        const runner = new Runner(new Spring()).element(element).x(100)
+
+        runner.finish()
+        runner.time(0)
+        runner.step(16)
+
+        expect(runner.time()).toBe(16)
+        expect(element.x()).not.toBeNaN()
+      })
+
+      it('fires finished when a controller runner converges', () => {
+        const finished = createSpy('finished')
+        const runner = new Runner(
+          new Controller((_current, target, _dt, context) => {
+            context.done = true
+            return target
+          })
+        )
+          .queue(null, () => true)
+          .after(finished)
+
+        runner.step(16)
+
+        expect(runner.done).toBe(true)
+        expect(finished).toHaveBeenCalledTimes(1)
       })
     })
 
@@ -952,6 +1036,20 @@ describe('Runner.js', () => {
           jasmine.RequestAnimationFrame.tick(16)
           expect(runner._tryRetarget('x', 20)).toBe(true)
           expect(runner._history.x.morpher.to()).toEqual([20, ''])
+        })
+
+        it('does not fire finished again for a retargeted timed runner', () => {
+          const finished = createSpy('finished')
+          const element = new Rect().x(0)
+          const runner = new Runner(100).element(element).x(100).after(finished)
+
+          runner.step(100)
+          // the retarget cannot take effect anymore, so it must stay silent
+          runner.x(200)
+          runner.step(100)
+
+          expect(element.x()).toBe(100)
+          expect(finished).toHaveBeenCalledTimes(1)
         })
 
         it('throws away the morpher if it was not initialized yet and returns false', () => {
@@ -1625,6 +1723,68 @@ describe('Runner.js', () => {
           jasmine.RequestAnimationFrame.tick(1)
 
           expect(element.matrix()).toEqual(new Matrix().translate(100, 0))
+        })
+
+        it('does not fold a finished runner into its own baseline', () => {
+          const element = new Rect()
+          const runner = new Runner(100).ease('-').element(element)
+
+          runner.transform({ translate: [100, 0] }, true)
+          runner.step(100)
+          jasmine.RequestAnimationFrame.tick(1)
+          expect(element.matrix()).toEqual(new Matrix().translate(100, 0))
+
+          // the runner reached its end but is still ours to rewind, so its
+          // transform must not have been merged into the element baseline
+          runner.reset()
+          runner.step(50)
+          jasmine.RequestAnimationFrame.tick(1)
+
+          expect(element.matrix()).toEqual(new Matrix().translate(50, 0))
+        })
+
+        it('holds a relative controller transform still after converging', () => {
+          const element = new Rect()
+          const runner = new Runner(new Spring(100, 0)).element(element)
+
+          // a controller reruns its transform on every frame, so folding it
+          // into the baseline once done would reapply it over and over
+          runner.transform({ translate: [100, 0] }, true)
+          for (let i = 0; i < 400; ++i) {
+            runner.step(16)
+            jasmine.RequestAnimationFrame.tick(1)
+          }
+
+          expect(runner.done).toBe(true)
+          expect(element.matrix().e).toBeCloseTo(100, 3)
+        })
+
+        it('rewinds a finished runner when stepped backwards', () => {
+          const element = new Rect()
+          const runner = new Runner(100).ease('-').element(element)
+
+          runner.transform({ translate: [100, 0] }, true)
+          runner.step(100)
+          jasmine.RequestAnimationFrame.tick(1)
+          runner.step(-50)
+          jasmine.RequestAnimationFrame.tick(1)
+
+          expect(element.matrix()).toEqual(new Matrix().translate(50, 0))
+        })
+
+        it('folds a runner into the baseline once its timeline retires it', () => {
+          const element = new Rect()
+          const timeline = element.timeline().source(() => 0)
+          element
+            .animate(100, 0, 'absolute')
+            .ease('-')
+            .transform({ translate: [100, 0] }, true)
+
+          timeline.time(100)
+          jasmine.RequestAnimationFrame.tick(1)
+
+          expect(element.matrix()).toEqual(new Matrix().translate(100, 0))
+          expect(element._transformationRunners.length()).toBe(1)
         })
 
         it('finishes skewY at the direct transform matrix', () => {
@@ -2409,20 +2569,40 @@ describe('Runner.js', () => {
     })
 
     describe('merge()', () => {
-      it('merges all runners which are done', () => {
+      // Only runners a timeline retired for good may be folded into the
+      // baseline, so hand built runners have to say so explicitly
+      const retire = (runner) => {
+        runner.done = true
+        runner._retired = true
+        return runner
+      }
+
+      it('merges all runners which are retired', () => {
         const runner1 = new Runner().addTransform({ translate: [10, 20] })
         const runner2 = new Runner().addTransform({ rotate: 45 })
         const runner3 = new Runner().addTransform({ translate: [10, 20] })
         const arr = new RunnerArray()
         arr.add(runner1).add(runner2).add(runner3)
-        runner1.done = true
-        runner2.done = true
-        runner3.done = true
+        retire(runner1)
+        retire(runner2)
+        retire(runner3)
         arr.merge()
         expect(arr.runners[0]).toEqual(any(FakeRunner))
         expect(arr.runners[0].transforms).toEqual(
           new Matrix({ translate: [10, 20] }).rotate(45).translate(10, 20)
         )
+      })
+
+      it('skips runners which are done but not retired', () => {
+        const runner1 = new Runner().addTransform({ translate: [10, 20] })
+        const runner2 = new Runner().addTransform({ rotate: 45 })
+        const arr = new RunnerArray().add(runner1).add(runner2)
+        runner1.done = true
+        runner2.done = true
+
+        arr.merge()
+
+        expect(arr.runners).toEqual([runner1, runner2])
       })
 
       it('skips runners which are not done', () => {
@@ -2433,11 +2613,11 @@ describe('Runner.js', () => {
         const runner5 = new Runner().addTransform({ rotate: 45 })
         const arr = new RunnerArray()
         arr.add(runner1).add(runner2).add(runner3).add(runner4).add(runner5)
-        runner1.done = true
-        runner2.done = true
-        runner3.done = false
-        runner4.done = true
-        runner5.done = true
+        retire(runner1)
+        retire(runner2)
+        retire(runner3).done = false
+        retire(runner4)
+        retire(runner5)
         arr.merge()
         expect(arr.runners[0]).toEqual(any(FakeRunner))
         expect(arr.runners[0].transforms).toEqual(
@@ -2460,12 +2640,13 @@ describe('Runner.js', () => {
         const runner5 = new Runner().addTransform({ rotate: 45 })
         const arr = new RunnerArray()
         arr.add(runner1).add(runner2).add(runner3).add(runner4).add(runner5)
-        runner1.done = true
-        runner2.done = true
-        runner3.done = true
-        runner4.done = true
-        runner5.done = true
+        retire(runner1)
+        retire(runner2)
+        retire(runner3)
+        retire(runner4)
+        retire(runner5)
 
+        // scheduling takes the permission to fold runner3 away again
         runner3.schedule(new Timeline())
         arr.merge()
         expect(arr.runners[0]).toEqual(any(FakeRunner))
@@ -2487,9 +2668,9 @@ describe('Runner.js', () => {
         const runner3 = new Runner().addTransform({ rotate: 45 })
         runner2._isAbsoluteTransform = true
         const arr = new RunnerArray().add(runner1).add(runner2).add(runner3)
-        runner1.done = true
-        runner2.done = true
-        runner3.done = true
+        retire(runner1)
+        retire(runner2)
+        retire(runner3)
 
         arr.merge()
 

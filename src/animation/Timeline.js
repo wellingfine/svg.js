@@ -36,8 +36,18 @@ export default class Timeline extends EventTarget {
   }
 
   finish() {
-    // Go to end and pause
-    this.time(this.getEndTimeOfTimeline() + 1)
+    // Seeking past the end drives the timed runners, retires whatever has
+    // outlived its persistence and fires 'finished' from the one place that
+    // knows whether anything is actually left to run. Controllers have no end
+    // in time, so _stepFn settles them in place while this flag is set. Doing
+    // it there rather than in a pass of its own keeps every runner in schedule
+    // order, so overlapping values end up with the precedence a seek gives them.
+    this._finishing = true
+    try {
+      this.time(this.getEndTimeOfTimeline() + 1)
+    } finally {
+      this._finishing = false
+    }
     return this.pause()
   }
 
@@ -127,6 +137,7 @@ export default class Timeline extends EventTarget {
     // Manage runner
     runner.unschedule()
     runner.timeline(this)
+    runner._retired = false
 
     const persist = runner.persist()
     const runnerInfo = {
@@ -182,6 +193,9 @@ export default class Timeline extends EventTarget {
     this._runnerIds.splice(index, 1)
 
     runner.timeline(null)
+    // Nothing drives this runner anymore, so its transforms may now be folded
+    // into the element baseline. Scheduling it again takes that permission back.
+    runner._retired = true
     return this
   }
 
@@ -280,8 +294,10 @@ export default class Timeline extends EventTarget {
       if (!runner.active()) continue
 
       // If this runner is still going, signal that we need another animation
-      // frame, otherwise, remove the completed runner
-      const finished = runner.step(dt).done
+      // frame, otherwise, remove the completed runner. A controller cannot be
+      // ended by a seek, so while finishing we settle it at its target instead.
+      const settle = this._finishing && runner._isDeclarative
+      const finished = (settle ? runner.finish() : runner.step(dt)).done
       if (!finished) {
         runnersLeft = true
         // continue
@@ -289,7 +305,7 @@ export default class Timeline extends EventTarget {
         // runner is finished. And runner might get removed
         const endTime = runner.duration() - runner.time() + this._time
 
-        if (endTime + runnerInfo.persist < this._time) {
+        if (endTime + runnerInfo.persist <= this._time) {
           // Delete runner and correct index
           runner.unschedule()
           --i
@@ -323,9 +339,15 @@ export default class Timeline extends EventTarget {
     // Determines how long a runner is hold in memory. Can be a dt or true/false
     this._persist = 0
 
+    // Let go of the runners we were driving. Retiring them matches what
+    // unscheduling one does: nothing steps them anymore, so their transforms
+    // may be folded into the element baseline.
+    for (const { runner } of this._runners || []) runner._retired = true
+
     // Keep track of the running animations and their starting parameters
     this._nextFrame = null
     this._paused = true
+    this._finishing = false
     this._runners = []
     this._runnerIds = []
     this._lastRunnerId = -1

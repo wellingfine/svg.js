@@ -4,6 +4,7 @@ import {
   Timeline,
   SVG,
   Runner,
+  Spring,
   Animator,
   Queue,
   Rect
@@ -213,6 +214,81 @@ describe('Timeline.js', () => {
   })
 
   describe('finish - issue #964', () => {
+    it('settles controller runners at their targets', () => {
+      const timeline = new Timeline(() => 0)
+      const finished = createSpy('finished')
+      const rect = new Rect().x(0)
+      const runner = new Runner(new Spring())
+        .element(rect)
+        .timeline(timeline)
+        .x(100)
+        .schedule(0, 'absolute')
+
+      timeline.on('finished', finished)
+      timeline.finish()
+
+      expect(rect.x()).toBe(100)
+      expect(runner.done).toBe(true)
+      expect(timeline.active()).toBe(false)
+      expect(finished).toHaveBeenCalledTimes(1)
+    })
+
+    it('lets the last scheduled runner win over an earlier controller', () => {
+      const timeline = new Timeline(() => 0)
+      const rect = new Rect().x(0)
+      new Runner(new Spring())
+        .element(rect)
+        .timeline(timeline)
+        .x(200)
+        .schedule(0, 'absolute')
+      new Runner(100)
+        .ease('-')
+        .element(rect)
+        .timeline(timeline)
+        .x(50)
+        .schedule(1000, 'absolute')
+
+      timeline.finish()
+
+      expect(rect.x()).toBe(50)
+    })
+
+    it('lets the last scheduled controller win over an earlier runner', () => {
+      const timeline = new Timeline(() => 0)
+      const rect = new Rect().x(0)
+      new Runner(100)
+        .ease('-')
+        .element(rect)
+        .timeline(timeline)
+        .x(50)
+        .schedule(0, 'absolute')
+      new Runner(new Spring())
+        .element(rect)
+        .timeline(timeline)
+        .x(200)
+        .schedule(1000, 'absolute')
+
+      timeline.finish()
+
+      expect(rect.x()).toBe(200)
+    })
+
+    it('leaves deactivated runners alone', () => {
+      const timeline = new Timeline(() => 0)
+      const rect = new Rect().x(0)
+      const runner = new Runner(new Spring())
+        .element(rect)
+        .timeline(timeline)
+        .x(100)
+        .active(false)
+        .schedule(0, 'absolute')
+
+      timeline.finish()
+
+      expect(rect.x()).toBe(0)
+      expect(runner.done).toBe(false)
+    })
+
     let canvas
 
     beforeEach(() => {
@@ -434,7 +510,7 @@ describe('Timeline.js', () => {
       timeline.schedule(runner).play() // we have to play because its synchronous here
       jasmine.RequestAnimationFrame.tick(1000)
       jasmine.RequestAnimationFrame.tick(1)
-      expect(runner.time()).toBe(1001)
+      expect(runner.time()).toBe(1000)
       expect(timeline.getRunnerInfoById(runner.id)).toBe(null)
     })
 
@@ -444,7 +520,7 @@ describe('Timeline.js', () => {
       timeline.schedule(runner).play() // we have to play because its synchronous here
       jasmine.RequestAnimationFrame.tick(1000)
       jasmine.RequestAnimationFrame.tick(1)
-      expect(runner.time()).toBe(1001)
+      expect(runner.time()).toBe(1000)
       expect(timeline.getRunnerInfoById(runner.id)).not.toBe(null)
     })
 
@@ -454,7 +530,7 @@ describe('Timeline.js', () => {
       timeline.schedule(runner).play() // we have to play because its synchronous here
       jasmine.RequestAnimationFrame.tick(1000)
       jasmine.RequestAnimationFrame.tick(1)
-      expect(runner.time()).toBe(1001)
+      expect(runner.time()).toBe(1000)
       expect(timeline.getRunnerInfoById(runner.id)).not.toBe(null)
     })
 
