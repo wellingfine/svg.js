@@ -10,6 +10,7 @@ The document follows the conventions described in [“Keep a CHANGELOG”](http:
 
 ### Fixed
 
+- capture relative animation transform baselines when the animation starts
 - animate singular affine transforms without producing non-finite matrix values
 - preserve animated transforms when seeking timelines backward or forward
 - compose parallel transform animations in runner registration order

@@ -678,6 +678,16 @@ registerMethods({
     },
 
     _addRunner(runner) {
+      if (
+        this._transformationRunners.length() === 1 &&
+        this._transformationRunners.runners[0].id === -1
+      ) {
+        // element() prepares transform composition before queued actions are
+        // initialised. Refresh that untouched baseline here so direct changes
+        // made between scheduling and the first frame are retained.
+        this._transformationRunners.runners[0].transforms = new Matrix(this)
+      }
+
       this._transformationRunners.add(runner)
 
       // Make sure that the runner merge is executed at the very end of

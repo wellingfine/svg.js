@@ -1576,6 +1576,18 @@ describe('Runner.js', () => {
           expect(element.matrix()).toEqual(new Matrix().translate(100, 0))
         })
 
+        it('captures a relative transform baseline when the animation starts', () => {
+          const element = new Rect()
+          const runner = new Runner(100).ease('-').element(element)
+
+          runner.transform({ translate: [100, 0] }, true)
+          element.transform({ translate: [50, 0] })
+          runner.step(50)
+          jasmine.RequestAnimationFrame.tick(1)
+
+          expect(element.matrix()).toEqual(new Matrix().translate(100, 0))
+        })
+
         it('finishes skewY at the direct transform matrix', () => {
           const element = new Rect({ width: 300, height: 300 })
           const runner = new Runner(100).ease('-').element(element)
