@@ -10,6 +10,7 @@ The document follows the conventions described in [“Keep a CHANGELOG”](http:
 
 ### Fixed
 
+- stop rerunning completed non-transform actions while controller animations continue
 - honor zero-valued origins when retargeting declarative transform animations
 - capture relative animation transform baselines when the animation starts
 - animate singular affine transforms without producing non-finite matrix values

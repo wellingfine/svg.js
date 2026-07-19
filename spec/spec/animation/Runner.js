@@ -1043,6 +1043,45 @@ describe('Runner.js', () => {
           runner._run(200)
           expect(runner._run(1)).toBe(true)
         })
+
+        it('does not run completed ordinary actions again', () => {
+          const completed = createSpy('completed').and.returnValue(true)
+          const pending = createSpy('pending').and.returnValue(false)
+          const runner = new Runner(new Controller())
+            .queue(null, completed)
+            .queue(null, pending)
+
+          runner._run(16)
+          runner._run(16)
+
+          expect(completed).toHaveBeenCalledTimes(1)
+          expect(pending).toHaveBeenCalledTimes(2)
+        })
+
+        it('continues running completed timed actions at each position', () => {
+          const action = createSpy('action').and.returnValue(true)
+          const runner = new Runner(100).during(action)
+
+          runner._run(0.25)
+          runner._run(0.5)
+
+          expect(action).toHaveBeenCalledTimes(2)
+        })
+
+        it('regenerates completed transform actions', () => {
+          const transform = createSpy('transform').and.returnValue(true)
+          const runner = new Runner(new Controller()).queue(
+            null,
+            transform,
+            null,
+            true
+          )
+
+          runner._run(16)
+          runner._run(16)
+
+          expect(transform).toHaveBeenCalledTimes(2)
+        })
       })
 
       describe('addTransform()', () => {

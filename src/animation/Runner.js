@@ -475,8 +475,13 @@ export default class Runner extends EventTarget {
       // Get the current function to run
       const current = this._queue[i]
 
-      // Run the function if its not finished, we keep track of the finished
-      // flag for the sake of declarative _queue
+      // Controller actions report convergence independently and can stop once
+      // complete. Timed callbacks still run at every sampled position, while
+      // transforms must be regenerated because their matrix is cleared first.
+      if (this._isDeclarative && current.finished && !current.isTransform) {
+        continue
+      }
+
       const converged = current.runner.call(this, positionOrDt)
       current.finished = current.finished || converged === true
       allfinished = allfinished && current.finished
